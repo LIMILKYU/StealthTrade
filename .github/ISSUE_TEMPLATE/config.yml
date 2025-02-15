@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "Feature Request"
+    url: https://github.com/LIMILKYU/CryptoTrade/issues/new?template=feature_request.md
+    about: "새로운 기능 요청을 위해 이 링크를 클릭하세요."
+
