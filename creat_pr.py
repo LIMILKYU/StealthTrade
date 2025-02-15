@@ -18,10 +18,11 @@ url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/pulls"
 # PR 생성 데이터
 data = {
     "title": "자동 생성된 PR",
-    "head": "main",
+    "head": "feature-new-update",  # 변경할 브랜치
     "base": "main",
     "body": "이 PR은 자동으로 생성되었습니다. 확인 후 병합하세요.",
 }
+
 
 # PR 요청 보내기
 response = requests.post(url, json=data, headers=headers)
