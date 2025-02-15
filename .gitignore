@@ -1,13 +1,5 @@
-# Python 관련
-__pycache__/
-*.py[cod]
-venv/
+# 정리된 최종 버전
 .venv/
-.DS_Store
+*.pyc
+*.log
 
-# 환경 변수 파일
-.env
-
-# 로그 파일
-logs/
-nohup.out
