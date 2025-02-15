@@ -1,0 +1,22 @@
+name: List Repository Contents
+
+on:
+  workflow_dispatch:  # 수동 실행 가능
+
+jobs:
+  list-contents:
+    runs-on: ubuntu-latest  # GitHub Actions에서 실행할 환경
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3  # 리포지토리 코드를 체크아웃
+
+      - name: List files and directories
+        run: |
+          sudo apt-get update && sudo apt-get install -y tree  # tree 명령어 설치
+          tree -a -I '.git|.github' > repository_structure.txt  # 파일 구조 저장
+
+      - name: Upload repository structure
+        uses: actions/upload-artifact@v3
+        with:
+          name: repository-structure
+          path: repository_structure.txt  # 저장된 파일을 GitHub Actions 아티팩트로 업로드
