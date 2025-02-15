@@ -1,22 +1,30 @@
 import requests
-from config import HEADERS, REPO_OWNER, REPO_NAME
+import os
+from dotenv import load_dotenv
 
-# GitHub API URL
-url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents"
+load_dotenv()
 
-# API 요청
-response = requests.get(url, headers=HEADERS)
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+REPO_OWNER = os.getenv("REPO_OWNER")
+REPO_NAME = os.getenv("REPO_NAME")
 
-if response.status_code == 200:
-    files = response.json()
-    
-    # .py 파일만 필터링
-    py_files = [file["name"] for file in files if file["name"].endswith(".py")]
+HEADERS = {
+    "Authorization": f"token {GITHUB_TOKEN}",
+    "Accept": "application/vnd.github.v3+json",
+}
 
-    if py_files:
-        print(f"[INFO] 분석 가능한 Python 파일 목록: {py_files}")
+# GitHub 리포지토리 파일 목록 가져오기
+def list_repository_files():
+    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents"
+    response = requests.get(url, headers=HEADERS)
+
+    if response.status_code == 200:
+        files = response.json()
+        for file in files:
+            print(f"- {file['name']} ({file['path']})")
     else:
-        print("[WARNING] 리포지토리에 Python 파일이 없습니다. main.py를 추가하세요.")
-else:
-    print(f"[ERROR] 파일 목록 불러오기 실패: {response.status_code}")
-    print(response.json())
+        print(f"[ERROR] GitHub 접속 실패: {response.status_code}")
+
+# 실행
+if __name__ == "__main__":
+    list_repository_files()

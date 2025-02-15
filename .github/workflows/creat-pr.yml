@@ -1,0 +1,31 @@
+name: Create PR Automatically
+
+on:
+  push:
+    branches:
+      - feature-auto-pr  # 자동 PR을 만들 브랜치 지정
+
+jobs:
+  create-pull-request:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: 의존성 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests python-dotenv
+
+      - name: PR 자동 생성 실행
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_OWNER: LIMILKYU
+          REPO_NAME: CryptoTrade
+        run: python create_pr.py

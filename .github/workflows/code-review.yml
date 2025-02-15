@@ -1,0 +1,38 @@
+name: Code Review & Lint Check
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  lint:
+    name: Lint & Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          pip install flake8 autopep8
+          
+      - name: Run flake8 for Lint Check
+        run: flake8 . --count --show-source --statistics
+
+      - name: Auto-fix with autopep8
+        run: autopep8 --in-place --aggressive --recursive .
+
+      - name: Commit Changes
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git add .
+          git commit -m "Auto-fixed code style issues" || echo "No changes to commit"
+          git push
+
