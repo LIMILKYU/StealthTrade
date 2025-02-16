@@ -5,3 +5,4 @@
 
 .env
 stealthtrade/data_collection/stealthtrade/
+.DS_Store
