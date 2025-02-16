@@ -1,39 +1,72 @@
+import logging
 import numpy as np
 
-def kelly_criterion(win_rate, risk_reward_ratio):
-    """
-    켈리 기준 (Kelly Criterion) 기반 최적 포지션 크기 계산
-    win_rate: 승률 (0 ~ 1 범위)
-    risk_reward_ratio: 손익비 (예: 2.0이면 1:2 손익비)
-    """
-    kelly_fraction = win_rate - ((1 - win_rate) / risk_reward_ratio)
-    return max(0, kelly_fraction)  # 음수일 경우 0으로 설정 (베팅 금지)
+class PositionSizing:
+    def __init__(self, initial_balance: float, risk_tolerance: float = 0.02):
+        """
+        :param initial_balance: 초기 자본금
+        :param risk_tolerance: 기본 리스크 허용 비율 (기본: 2%)
+        """
+        self.balance = initial_balance
+        self.risk_tolerance = risk_tolerance
+        self.market_condition = "Range"  # 초기 시장 상태 (기본: 박스권)
+        logging.basicConfig(level=logging.INFO)
 
-def calculate_volatility_adjusted_size(account_balance, atr, base_risk=0.01):
-    """
-    변동성(ATR) 기반 포지션 크기 조정
-    account_balance: 현재 계좌 잔고
-    atr: 평균 진폭 (ATR)
-    base_risk: 기본 리스크 (예: 1% = 0.01)
-    """
-    risk_amount = account_balance * base_risk
-    position_size = risk_amount / atr  # 변동성이 클수록 포지션 크기 축소
-    return position_size
+    def set_market_condition(self, condition: str):
+        """ 현재 시장 상태 업데이트 """
+        valid_conditions = ["Strong Bullish", "Weak Bullish", "Range", "Weak Bearish", "Strong Bearish"]
+        if condition not in valid_conditions:
+            raise ValueError(f"Invalid market condition: {condition}")
+        self.market_condition = condition
+        logging.info(f"Market Condition Updated: {self.market_condition}")
 
-def determine_position_size(account_balance, market_regime, win_rate, risk_reward_ratio, atr):
-    """
-    시장 상황 & 켈리 기준 기반 포지션 크기 결정
-    """
-    kelly_size = kelly_criterion(win_rate, risk_reward_ratio)
-    volatility_adjusted_size = calculate_volatility_adjusted_size(account_balance, atr)
-    
-    if market_regime == "강한 상승장":
-        return volatility_adjusted_size * kelly_size * 1.5  # 적극적 포지션 증가
-    elif market_regime == "약한 상승장":
-        return volatility_adjusted_size * kelly_size * 1.2
-    elif market_regime == "강한 하락장":
-        return volatility_adjusted_size * kelly_size * 1.5 * -1  # 숏 포지션 증가
-    elif market_regime == "약한 하락장":
-        return volatility_adjusted_size * kelly_size * 1.2 * -1
-    else:  # 횡보장
-        return volatility_adjusted_size * kelly_size * 0.5  # 리스크 축소
+    def kelly_criterion(self, win_rate: float, risk_reward_ratio: float):
+        """
+        켈리 공식 적용하여 최적 포지션 크기 계산
+        :param win_rate: 승률 (예: 0.6 = 60%)
+        :param risk_reward_ratio: 손익비 (예: 2.0 = 1:2)
+        :return: 추천 투자 비율 (최대 30% 제한)
+        """
+        kelly_fraction = win_rate - (1 - win_rate) / risk_reward_ratio
+        optimal_fraction = max(0, min(kelly_fraction, 0.3))  # 0% ~ 30% 제한
+        logging.info(f"Kelly Criterion Position Size: {optimal_fraction:.2%}")
+        return optimal_fraction
+
+    def calculate_position_size(self, win_rate: float, risk_reward_ratio: float, stop_loss_percent: float, volatility: float, trade_type: str):
+        """
+        시장 상황 & 변동성 고려하여 최적 포지션 크기 계산
+        :param win_rate: 승률 (0.6 = 60%)
+        :param risk_reward_ratio: 손익비 (예: 2.0 = 1:2)
+        :param stop_loss_percent: 손절 비율 (예: 1% = 0.01)
+        :param volatility: 최근 변동성 (예: 1.5%)
+        :param trade_type: "LONG" 또는 "SHORT"
+        :return: 추천 진입 금액 (USDT)
+        """
+        if self.market_condition == "Strong Bearish" and trade_type == "LONG":
+            logging.warning("🚨 강한 하락장에서는 롱 포지션 진입 금지! 🚨")
+            return 0  # 강한 하락장에서 롱 포지션 X
+        
+        kelly_fraction = self.kelly_criterion(win_rate, risk_reward_ratio)
+        risk_amount = self.balance * self.risk_tolerance * kelly_fraction  # 켈리 적용된 리스크 금액
+
+        # 📌 시장 상황에 따른 포지션 크기 조절
+        market_adjustment = {
+            "Strong Bullish": 1.0,  # 강한 상승장 → 100% 반영
+            "Weak Bullish": 0.7,  # 약한 상승장 → 70% 반영
+            "Range": 0.5,  # 박스권 → 50% 반영
+            "Weak Bearish": 0.3,  # 약한 하락장 → 30% 반영
+            "Strong Bearish": 0.5 if trade_type == "SHORT" else 0.0  # 강한 하락장 → 숏은 허용, 롱은 금지
+        }
+        adjusted_size = risk_amount / (stop_loss_percent * volatility) * market_adjustment[self.market_condition]
+
+        logging.info(f"Market Condition: {self.market_condition}, Trade Type: {trade_type}, Position Size: {adjusted_size:.4f} USDT")
+        return min(adjusted_size, self.balance * 0.3)  # 포지션 크기 최대 30% 제한
+
+# 사용 예시
+if __name__ == "__main__":
+    position_sizing = PositionSizing(10000)  # 초기 자본금 10,000 USDT
+    position_sizing.set_market_condition("Strong Bearish")  # 강한 하락장 설정
+    size_long = position_sizing.calculate_position_size(0.6, 2.0, 0.01, 1.5, "LONG")
+    size_short = position_sizing.calculate_position_size(0.6, 2.0, 0.01, 1.5, "SHORT")
+    print(f"Recommended Long Position Size: {size_long:.2f} USDT")
+    print(f"Recommended Short Position Size: {size_short:.2f} USDT")
