@@ -16,6 +16,7 @@ from statsmodels.tsa.stattools import adfuller
 from arch import arch_model  # GARCH 모델
 from ohlcv_collector import OHLCVCollector  # 가격 데이터 수집 모듈
 from total_trading_value import TradingVolumeAnalyzer  # 거래대금 분석 모듈
+from data_processing.total_trading_value import TotalTradingValue
 
 class VolatilityAnalysis:
     def __init__(self, asset="BTCUSDT", interval="1h"):
