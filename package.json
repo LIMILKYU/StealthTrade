@@ -1,6 +1,13 @@
 {
   "dependencies": {
+    "@tanstack/react-query": "^4.36.1",
+    "@trpc/client": "^10.45.2",
+    "@trpc/react-query": "^10.45.2",
+    "@types/react": "^19.0.9",
+    "@types/react-dom": "^19.0.3",
     "dotenv": "^16.4.7",
-    "openai": "^4.85.1"
+    "openai": "^4.85.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   }
 }

@@ -1,40 +1,41 @@
 import requests
-import numpy as np
-import pandas as pd
-from config import BINANCE_BASE_URL, NUM_COINS_TO_TRADE, AUTO_SELECT_COIN, USER_SELECTED_COINS
+import logging
+import os
+from dotenv import load_dotenv
+from backend.t_rpc_client import tRPCClient
 
-def fetch_top_coins():
-    """ 바이낸스에서 상위 거래량 코인 가져오기 """
-    url = f"{BINANCE_BASE_URL}/api/v3/ticker/24hr"
-    response = requests.get(url)
+# .env 파일 로드
+load_dotenv()
 
-    if response.status_code == 200:
+class CoinSelector:
+    def __init__(self, min_volume=50000000, min_volatility=0.02, user_defined_pairs=None):
+        self.api_url = "https://api.binance.com/api/v3/ticker/24hr"
+        self.min_volume = min_volume
+        self.min_volatility = min_volatility
+        self.user_defined_pairs = user_defined_pairs or []
+        self.selected_coins = []
+        self.trpc_client = tRPCClient(os.getenv("TRPC_API_URL"))
+
+    def filter_coins(self):
+        """ 변동성이 높은 코인을 자동으로 선정 """
+        response = requests.get(self.api_url)
+        if response.status_code != 200:
+            logging.error("❌ 시장 데이터 가져오기 실패")
+            return []
+
         data = response.json()
-        df = pd.DataFrame(data)
+        for coin in data:
+            symbol = coin["symbol"]
+            volume = float(coin["quoteVolume"])
+            price_change = abs(float(coin["priceChangePercent"])) / 100  
 
-        # USDT 페어만 필터링
-        df = df[df["symbol"].str.endswith("USDT")]
+            if volume > self.min_volume and price_change > self.min_volatility and symbol.endswith("USDT"):
+                self.selected_coins.append(symbol)
 
-        # 🔹 거래량(quoteVolume), 변동성(high-low), 거래대금(weightedAvgPrice) 기준 정렬
-        df["volatility"] = df["highPrice"].astype(float) - df["lowPrice"].astype(float)
-        df["trade_value"] = df["quoteVolume"].astype(float)
-        
-        # 종합 점수 계산 (거래대금 * 변동성)
-        df["score"] = df["trade_value"] * df["volatility"]
-        df = df.sort_values("score", ascending=False)
+        self.selected_coins.extend(self.user_defined_pairs)
+        logging.info(f"📌 최종 매매 대상 코인: {self.selected_coins}")
 
-        # 상위 NUM_COINS_TO_TRADE 개 코인 선택
-        return df["symbol"].head(NUM_COINS_TO_TRADE).tolist()
-    else:
-        print("❌ 코인 리스트 가져오기 실패!")
-        return []
+        # tRPC API를 통해 프론트엔드 업데이트
+        self.trpc_client.update_trade_data({"selected_coins": self.selected_coins})
 
-def get_selected_coins():
-    """ 사용자가 선택한 코인 또는 자동 선정 코인 반환 """
-    if AUTO_SELECT_COIN:
-        selected_coins = fetch_top_coins()
-    else:
-        selected_coins = USER_SELECTED_COINS
-
-    print(f"✅ 매매할 코인: {selected_coins}")
-    return selected_coins
+        return self.selected_coins

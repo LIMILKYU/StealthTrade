@@ -1,99 +1,117 @@
-#  거래소 API에서 계정 정보를 가져오고, AI 신호를 기반으로 최적화된 주문을 실행하는 코드
-
 import requests
 import logging
+import os
+from dotenv import load_dotenv
 from strategy.trading_signal_generator import TradingSignalGenerator
+from backend.t_rpc_client import tRPCClient
+from notification.telegram_notifier import TelegramNotifier
+
+# 환경 변수 로드
+load_dotenv()
 
 class ExchangeAccount:
-    def __init__(self, api_key: str, secret_key: str, base_url: str = "https://api.binance.com"):
-        """
-        거래소 API를 사용하여 자본금 및 포지션 데이터를 가져오는 클래스
-        :param api_key: API 키
-        :param secret_key: API 시크릿 키
-        :param base_url: 거래소 API 기본 URL
-        """
-        self.api_key = api_key
-        self.secret_key = secret_key
-        self.base_url = base_url
+    def __init__(self):
+        """ 거래소 API를 사용하여 계정 정보를 가져오는 클래스 """
+        self.api_key = os.getenv("BINANCE_API_KEY")
+        self.secret_key = os.getenv("BINANCE_SECRET_KEY")
+        self.base_url = "https://api.binance.com"
         self.headers = {"X-MBX-APIKEY": self.api_key}
+        self.trpc_client = tRPCClient(os.getenv("TRPC_API_URL"))
+        self.telegram_notifier = TelegramNotifier(
+            os.getenv("TELEGRAM_BOT_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
+        )
         logging.basicConfig(level=logging.INFO)
 
     def get_account_balance(self):
         """ 내 계정의 총 자본금 및 잔액 조회 """
-        url = f"{self.base_url}/api/v3/account"
-        response = requests.get(url, headers=self.headers)
-
-        if response.status_code == 200:
-            data = response.json()
-            balances = {asset["asset"]: float(asset["free"]) for asset in data["balances"] if float(asset["free"]) > 0}
-            logging.info(f"✅ 현재 계정 잔액: {balances}")
-            return balances
-        else:
-            logging.error(f"❌ 계정 정보 조회 실패: {response.text}")
+        try:
+            url = f"{self.base_url}/api/v3/account"
+            response = requests.get(url, headers=self.headers)
+            if response.status_code == 200:
+                data = response.json()
+                balances = {asset["asset"]: float(asset["free"]) for asset in data["balances"]}
+                return balances
+            else:
+                logging.error(f"❌ 계정 정보 불러오기 실패: {response.text}")
+                return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"⚠️ API 요청 오류 발생: {e}")
             return None
 
-    def get_open_positions(self):
-        """ 내 포지션 및 미결제약정(Open Interest) 조회 (선물 계정) """
-        url = f"{self.base_url}/fapi/v2/positionRisk"
-        response = requests.get(url, headers=self.headers)
+    def place_order(self, symbol, side, quantity, order_type="LIMIT", price=None):
+        """ 주문 실행 및 체결 내역 업데이트 """
+        try:
+            order_data = {
+                "symbol": symbol,
+                "side": side,
+                "type": order_type,
+                "quantity": quantity,
+            }
+            if order_type == "LIMIT" and price:
+                order_data["price"] = price
+                order_data["timeInForce"] = "GTC"  # 지정가 주문 유지
 
-        if response.status_code == 200:
-            positions = [pos for pos in response.json() if float(pos["positionAmt"]) != 0]
-            logging.info(f"📊 현재 보유 포지션: {positions}")
-            return positions
-        else:
-            logging.error(f"❌ 포지션 조회 실패: {response.text}")
+            url = f"{self.base_url}/api/v3/order"
+            response = requests.post(url, headers=self.headers, json=order_data)
+
+            if response.status_code == 200:
+                order_response = response.json()
+                order_id = order_response["orderId"]
+                logging.info(f"✅ 주문 체결 성공: {order_id}")
+
+                # 주문 체결 후 데이터 동기화
+                self.sync_order_status(order_id, symbol)
+
+                # 주문 성공 알림 전송
+                self.telegram_notifier.send_message(
+                    f"📌 **주문 체결 완료**\n"
+                    f"🔹 종목: {symbol}\n"
+                    f"🔹 방향: {side}\n"
+                    f"🔹 수량: {quantity}\n"
+                    f"🔹 주문 유형: {order_type}\n"
+                    f"🔹 주문 ID: {order_id}"
+                )
+                return order_response
+            else:
+                logging.error(f"🚨 주문 실패: {response.text}")
+                self.telegram_notifier.send_message(f"❌ 주문 실패: {response.text}")
+                return None
+
+        except requests.exceptions.RequestException as e:
+            logging.error(f"⚠️ API 오류 발생: {e}")
+            self.telegram_notifier.send_message(f"⚠️ 주문 실행 실패! API 오류 발생\n{e}")
             return None
 
+    def sync_order_status(self, order_id, symbol):
+        """ 주문 체결 상태 확인 후 프론트엔드 데이터 동기화 """
+        try:
+            url = f"{self.base_url}/api/v3/order?symbol={symbol}&orderId={order_id}"
+            response = requests.get(url, headers=self.headers)
 
-class OrderExecutor:
-    def __init__(self, api_key: str, secret_key: str, api_url: str, symbol: str):
-        """
-        주문 실행기 - AI 신호를 받아 주문 실행 + 레버리지 자동 조절
-        :param api_key: API 키
-        :param secret_key: API 시크릿 키
-        :param api_url: 거래소 API URL
-        :param symbol: 거래할 코인 심볼 (예: "BTCUSDT")
-        """
-        self.signal_generator = TradingSignalGenerator(api_url)
-        self.exchange = ExchangeAccount(api_key, secret_key)
-        self.symbol = symbol
-        logging.basicConfig(level=logging.INFO)
+            if response.status_code == 200:
+                order_status = response.json()
+                logging.info(f"📌 주문 상태 확인 완료: {order_status['status']}")
 
-    def adjust_leverage(self):
-        """ 시장 상황을 고려한 레버리지 자동 조절 """
-        positions = self.exchange.get_open_positions()
-        if positions:
-            for pos in positions:
-                if pos["symbol"] == self.symbol:
-                    current_leverage = int(pos["leverage"])
-                    position_amt = float(pos["positionAmt"])
-                    
-                    # 강한 상승장: 레버리지 증가 (최대 10배)
-                    if position_amt > 0:
-                        new_leverage = min(current_leverage + 2, 10)
-                    # 강한 하락장: 레버리지 최소화 (최소 1배)
-                    else:
-                        new_leverage = max(current_leverage - 2, 1)
+                # tRPC API를 통해 프론트엔드 업데이트
+                self.trpc_client.update_trade_data({
+                    "symbol": symbol,
+                    "order_id": order_id,
+                    "status": order_status["status"],
+                    "executed_qty": order_status["executedQty"],
+                    "side": order_status["side"],
+                })
 
-                    logging.info(f"🔄 레버리지 조정: {current_leverage}배 → {new_leverage}배")
-                    return new_leverage
+                if order_status["status"] == "FILLED":
+                    self.telegram_notifier.send_message(f"✅ **주문 완전 체결**: {symbol}, 주문 ID: {order_id}")
+                elif order_status["status"] == "PARTIALLY_FILLED":
+                    self.telegram_notifier.send_message(f"⚠️ **부분 체결**: {symbol}, 주문 ID: {order_id}")
 
-        return 5  # 기본 레버리지 5배 설정
+            else:
+                logging.error(f"🚨 주문 상태 조회 실패: {response.text}")
 
-    def execute_trade(self):
-        """ AI 최적화된 매매 신호를 받아 주문 실행 + 레버리지 자동 조절 """
-        signal = self.signal_generator.generate_signal()
-        if signal:
-            leverage = self.adjust_leverage()  # 레버리지 자동 조절
-            logging.info(f"✅ Executing AI Optimized Trade: {signal} (레버리지 {leverage}배)")
+        except requests.exceptions.RequestException as e:
+            logging.error(f"⚠️ 주문 상태 동기화 중 API 오류 발생: {e}")
 
-# 사용 예시
 if __name__ == "__main__":
-    API_KEY = "YOUR_BINANCE_API_KEY"
-    SECRET_KEY = "YOUR_BINANCE_SECRET_KEY"
-    SYMBOL = "BTCUSDT"
-    API_URL = "https://api.binance.com/api/v3/ticker/24hr"
-    
-    executor = OrderExecutor(API_KEY, SECRET_KEY, API_URL, SYMBOL)
-    executor.execute_trade()
+    exchange = ExchangeAccount()
+    exchange.place_order("BTCUSDT", "BUY", 0.01, "LIMIT", 45000.0)
