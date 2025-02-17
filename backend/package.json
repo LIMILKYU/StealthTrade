@@ -1,0 +1,19 @@
+{
+  "name": "stealthtrade-backend",
+  "version": "1.0.0",
+  "description": "StealthTrader backend with tRPC and Fastify",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@trpc/server": "^10.45.2",
+    "fastify": "^4.19.0"
+  },
+  "keywords": [],
+  "author": "kimhyewon",
+  "license": "ISC",
+  "type": "commonjs"
+}

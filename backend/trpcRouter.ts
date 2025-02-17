@@ -1,5 +1,5 @@
+import { PerformanceAPI } from "@backend/performance_api";
 import { initTRPC } from "@trpc/server";
-import { PerformanceAPI } from "./performance_api";
 import { StrategyAPI } from "./strategy_api";
 import { TradingAPI } from "./trading_api";
 
