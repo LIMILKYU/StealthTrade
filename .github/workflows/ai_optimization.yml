@@ -1,0 +1,23 @@
+name: AI Code Optimization
+
+on:
+  workflow_dispatch:  # 수동 실행 (자동 실행 방지)
+
+jobs:
+  ai-optimize:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run AI Optimizer
+        run: python github_automation/ai_optimizer.py

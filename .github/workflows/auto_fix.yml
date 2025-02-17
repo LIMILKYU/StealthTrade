@@ -1,0 +1,26 @@
+name: Auto Fix CI/CD Errors
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main  # main 브랜치에 코드가 변경될 때 실행
+
+jobs:
+  auto-fix:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run CI Fix Script
+        run: python github_automation/ci_fix.py
