@@ -3,50 +3,70 @@
 
 import pandas as pd
 import numpy as np
-import logging
+from telegram_alert import send_telegram_message
 
-class PerformanceAnalysis:
-    def __init__(self, trade_log_file: str):
+# 트레이딩 데이터 불러오기 (예제 CSV 파일)
+TRADING_DATA_PATH = "trading_history.csv"
+
+def analyze_performance():
+    """ 여러 코인의 트레이딩 성과 분석 """
+    try:
+        df = pd.read_csv(TRADING_DATA_PATH)
+        selected_coins = get_selected_coins()
+        report = "📊 **트레이딩 성과 보고서**\n"
+
+        for coin in selected_coins:
+            coin_df = df[df["symbol"] == coin]
+
+            if coin_df.empty:
+                report += f"⚠️ {coin} 데이터 없음\n"
+                continue
+
+            win_rate = coin_df[coin_df["profit"] > 0].shape[0] / coin_df.shape[0]
+            roi = (coin_df["profit"].sum() / coin_df["investment"].sum()) * 100
+            max_drawdown = ((coin_df["cumulative_profit"].cummax() - coin_df["cumulative_profit"]) / coin_df["cumulative_profit"].cummax()).min() * 100
+
+def analyze_performance():
+    """ 트레이딩 성과 분석 (ROI, 승률, MDD 계산) """
+    try:
+        df = pd.read_csv(TRADING_DATA_PATH)
+
+        # ✅ 승률 계산 (총 이익 거래 / 전체 거래 수)
+        win_rate = df[df["profit"] > 0].shape[0] / df.shape[0]
+
+        # ✅ ROI (Return on Investment) 계산
+        total_profit = df["profit"].sum()
+        total_investment = df["investment"].sum()
+        roi = (total_profit / total_investment) * 100
+
+        # ✅ MDD (Maximum Drawdown) 계산
+        df["cumulative_profit"] = df["profit"].cumsum()
+        rolling_max = df["cumulative_profit"].cummax()
+        drawdown = (df["cumulative_profit"] - rolling_max) / rolling_max
+        max_drawdown = drawdown.min() * 100  # 백분율 변환
+
+        # ✅ 리포트 출력
+        report = f"""
+        📊 **트레이딩 성과 보고서**
+        ✅ 승률: {win_rate * 100:.2f}%
+        ✅ ROI: {roi:.2f}%
+        ✅ 최대 손실 (MDD): {max_drawdown:.2f}%
+        ✅ 총 거래 횟수: {df.shape[0]} 회
+        ✅ 총 수익: {total_profit:.2f} USDT
         """
-        :param trade_log_file: 트레이딩 결과가 저장된 로그 파일 (CSV)
-        """
-        self.trade_log_file = trade_log_file
-        logging.basicConfig(level=logging.INFO)
 
-    def analyze_performance(self):
-        """ 트레이딩 성과 분석 """
-        df = pd.read_csv(self.trade_log_file)
-        df["PnL"] = df["exit_price"] - df["entry_price"]
+        return report.strip()
 
-        # 1️⃣ 승률 계산
-        win_rate = (df["PnL"] > 0).mean() * 100
+    except Exception as e:
+        return f"❌ 성과 분석 오류: {str(e)}"
 
-        # 2️⃣ 최대 손실 (MDD) 계산
-        cumulative_returns = (df["PnL"] / df["entry_price"]).cumsum()
-        peak = cumulative_returns.cummax()
-        max_drawdown = (cumulative_returns - peak).min()
+def send_trading_report():
+    """ 트레이딩 성과 분석 후 텔레그램으로 보고서 전송 """
+    report = analyze_performance()
+    send_telegram_message(report)
 
-        # 3️⃣ 평균 손익비 계산
-        avg_win = df[df["PnL"] > 0]["PnL"].mean()
-        avg_loss = abs(df[df["PnL"] < 0]["PnL"].mean())
-        risk_reward_ratio = avg_win / avg_loss if avg_loss != 0 else np.nan
-
-        # 4️⃣ 샤프비율 계산 (리스크 조정된 수익률)
-        roi = cumulative_returns.iloc[-1]
-        daily_volatility = df["PnL"].std()
-        sharpe_ratio = roi / daily_volatility if daily_volatility != 0 else np.nan
-
-        logging.info(f"📊 승률: {win_rate:.2f}%, MDD: {max_drawdown:.2f}, 손익비: {risk_reward_ratio:.2f}, 샤프비율: {sharpe_ratio:.2f}")
-
-        return {
-            "win_rate": win_rate,
-            "max_drawdown": max_drawdown,
-            "risk_reward_ratio": risk_reward_ratio,
-            "sharpe_ratio": sharpe_ratio
-        }
-
-# 사용 예시
+# 실행 코드
 if __name__ == "__main__":
-    analyzer = PerformanceAnalysis("data/trade_log.csv")
-    print(analyzer.analyze_performance())
+    send_trading_report()
+
 

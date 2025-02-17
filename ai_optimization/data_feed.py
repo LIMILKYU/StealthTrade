@@ -1,31 +1,28 @@
-# 실시간 시장 데이터를 AI 최적화 시스템으로 전송
-# API/WebSocket에서 데이터를 받아 AI 모델이 학습하도록 제공
-
+# 실시간 가격 데이터를 수집하여 AI 모델 학습에 제공하는 코드
 import requests
+import json
+import time
 import pandas as pd
-import logging
+from config import BINANCE_BASE_URL, TRADE_SYMBOL
 
-class DataFeed:
-    def __init__(self, api_url: str):
-        """
-        :param api_url: 실시간 데이터 API 주소
-        """
-        self.api_url = api_url
-        logging.basicConfig(level=logging.INFO)
+def fetch_market_data():
+    """ 바이낸스에서 실시간 시장 데이터를 가져옴 """
+    url = f"{BINANCE_BASE_URL}/api/v3/klines?symbol={TRADE_SYMBOL}&interval=1m&limit=50"
+    response = requests.get(url)
+    
+    if response.status_code == 200:
+        return response.json()
+    else:
+        print(f"❌ 데이터 가져오기 실패: {response.text}")
+        return None
 
-    def get_market_data(self):
-        """ 실시간 시장 데이터 가져오기 """
-        response = requests.get(self.api_url)
-        if response.status_code == 200:
-            data = response.json()
-            df = pd.DataFrame(data)
-            return df
-        else:
-            logging.error(f"🚨 Failed to fetch market data: {response.text}")
-            return None
+def save_data_to_csv(data, filename="market_data.csv"):
+    """ 데이터를 CSV 파일로 저장 """
+    df = pd.DataFrame(data, columns=["time", "open", "high", "low", "close", "volume"])
+    df.to_csv(filename, index=False)
+    print("✅ 실시간 데이터 저장 완료!")
 
-# 사용 예시
 if __name__ == "__main__":
-    data_feed = DataFeed("https://api.binance.com/api/v3/ticker/24hr")
-    df = data_feed.get_market_data()
-    print(df.head())
+    market_data = fetch_market_data()
+    if market_data:
+        save_data_to_csv(market_data)

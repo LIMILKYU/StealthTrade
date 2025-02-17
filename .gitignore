@@ -1,20 +1,9 @@
-# 정리된 최종 버전
-.venv/
+
 *.pyc
 *.log
 
 .env
-stealthtrade/data_collection/stealthtrade/
 .DS_Store
 venv/
 .venv/
 node_modules/
-생성/
-새로운/
-가상환경/
-venv/
-.venv/
-node_modules/
-생성/
-새로운/
-가상환경/
