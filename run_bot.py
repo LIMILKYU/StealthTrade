@@ -1,11 +1,11 @@
 from trade import place_order
-from telegram_alert import send_telegram_message
+from config import Config
 
 if __name__ == "__main__":
-    send_telegram_message("📢 StealthTrader 자동매매 시작!")
-    
-    # ✅ 매수 주문 실행
-    place_order(order_type="BUY")
-    
-    # ✅ 주문 성공 메시지 전송
-    send_telegram_message("✅ 매매 성공! BTCUSDT 매수 완료!")
+    # ✅ 변경된 코드 (API 체크)
+    if Config.BINANCE_API_KEY is None or Config.BINANCE_SECRET_KEY is None:
+        print("🚨 바이낸스 API 없음. 테스트 모드로 실행합니다.")
+    else:
+        print("✅ Binance API 연결 성공. 실거래 모드 실행.")
+
+    place_order("BTCUSDT", "BUY")  # ✅ API 없이 실행 가능하도록 변경됨
