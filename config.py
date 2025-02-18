@@ -43,8 +43,10 @@ class Config:
     def get_all():
         """ 환경 변수 설정 확인 (디버깅 용도) """
         return {
-            "BINANCE_API_KEY": Config.BINANCE_API_KEY[:5] + "*****",  # 보안상 일부만 출력
-            "BINANCE_SECRET_KEY": "*****",
+            "BINANCE_API_KEY": "*****" if Config.BINANCE_API_KEY else None,
+            "BINANCE_SECRET_KEY": "*****" if Config.BINANCE_SECRET_KEY else None,
+            "BINANCE_BASE_URL": Config.BINANCE_BASE_URL,  # ✅ 변경된 코드
+            "PAPER_TRADING": Config.PAPER_TRADING,
             "TELEGRAM_BOT_TOKEN": "*****",
             "TELEGRAM_CHAT_ID": Config.TELEGRAM_CHAT_ID,
             "TRPC_API_URL": Config.TRPC_API_URL,
