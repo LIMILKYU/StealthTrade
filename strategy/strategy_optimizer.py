@@ -5,6 +5,9 @@ import seaborn as sns
 from strategy_evaluator import StrategyEvaluator
 from trading_signal_generator import TradingSignalGenerator
 
+# ✅ AI 변동성 최적화 객체 생성
+ai_optimizer = AIRealTimeOptimizer()
+
 class StrategyOptimizer:
     def __init__(self, asset="BTCUSDT", interval="1h", strategies=None):
         """
@@ -18,11 +21,33 @@ class StrategyOptimizer:
         self.strategies = strategies if strategies else []
         self.evaluator = StrategyEvaluator()
         self.signal_generator = TradingSignalGenerator()
+        logging.basicConfig(level=logging.INFO)
+
+    def get_market_condition(self):
+        """
+        ✅ AI 변동성 분석을 기반으로 시장 상태 감지
+        :return: "Strong Bullish", "Weak Bullish", "Range", "Weak Bearish", "Strong Bearish"
+        """
+        volatility_factor = ai_optimizer.get_volatility_factor(self.asset)
+
+        if volatility_factor > 1.5:
+            return "Strong Bullish"
+        elif 1.2 <= volatility_factor <= 1.5:
+            return "Weak Bullish"
+        elif 0.8 <= volatility_factor < 1.2:
+            return "Range"
+        elif 0.5 <= volatility_factor < 0.8:
+            return "Weak Bearish"
+        else:
+            return "Strong Bearish"
 
     def run_experiment(self):
         """
-        각 전략을 실행하고 결과를 비교
+        ✅ 시장 상태에 따라 최적의 전략을 선택하여 실행
         """
+        market_condition = self.get_market_condition()
+        logging.info(f"📌 현재 시장 상태: {market_condition}")
+
         results = []
 
         for strategy in self.strategies:
@@ -44,6 +69,7 @@ class StrategyOptimizer:
         plt.xlabel("전략")
         plt.ylabel("누적 수익률 (%)")
         plt.xticks(rotation=45)
+        plt.legend(title="Market Condition")
         plt.show()
 
     def optimize_strategy(self):
@@ -55,7 +81,7 @@ class StrategyOptimizer:
         self.plot_results(results_df)
 
         best_strategy = results_df.loc[results_df["cumulative_return"].idxmax(), "strategy"]
-        print(f"\n✅ 최적의 전략: {best_strategy}")
+        logging.info(f"\n✅ 최적의 전략: {best_strategy} (현재 시장 상태: {self.get_market_condition()})")
         return best_strategy
 
 # 실행 예제

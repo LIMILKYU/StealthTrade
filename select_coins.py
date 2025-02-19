@@ -12,6 +12,9 @@ def get_mock_market_data():
         {"symbol": "ETHUSDT", "quoteVolume": "75000000", "priceChangePercent": "3.2"},
     ]
 
+# ✅ AI 변동성 최적화 객체 생성
+ai_optimizer = AIRealTimeOptimizer()
+
 class CoinSelector:
     def __init__(self, min_volume=50000000, min_volatility=0.02, user_defined_pairs=None):
         self.api_url = "https://api.binance.com/api/v3/ticker/24hr"
@@ -21,9 +24,13 @@ class CoinSelector:
         self.selected_coins = []
 
     def filter_coins(self):
-        """ 변동성이 높은 코인을 자동으로 선정 """
+        """ ✅ AI 변동성 분석을 반영하여 변동성이 높은 코인을 자동 선정 """
         if Config.BINANCE_API_KEY is None or Config.BINANCE_SECRET_KEY is None:
-            data = get_mock_market_data()  # ✅ Mock 데이터 사용
+            logging.warning("🚨 Binance API 없음 → Mock 데이터 사용")
+            data = [
+                {"symbol": "BTCUSDT", "quoteVolume": "100000000", "priceChangePercent": "5.0"},
+                {"symbol": "ETHUSDT", "quoteVolume": "75000000", "priceChangePercent": "3.2"},
+            ]
         else:
             response = requests.get(self.api_url)
             if response.status_code != 200:
