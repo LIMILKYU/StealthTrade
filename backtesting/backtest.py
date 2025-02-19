@@ -1,9 +1,6 @@
-# 과거 데이터 로드 및 전략 실행
-# 손익(PnL) 및 수익률 계산
-# 트레이딩 로그 저장
-
 import pandas as pd
 import logging
+import os
 
 class Backtester:
     def __init__(self, data_file: str, initial_balance: float):
@@ -18,13 +15,17 @@ class Backtester:
 
     def load_data(self):
         """ 과거 데이터 로드 """
+        if not os.path.exists(self.data_file):
+            logging.error(f"🚨 데이터 파일을 찾을 수 없습니다: {self.data_file}")
+            return None
+
         try:
             df = pd.read_csv(self.data_file)
             df["timestamp"] = pd.to_datetime(df["timestamp"])
-            logging.info(f"✅ Data Loaded: {self.data_file}, Rows: {len(df)}")
+            logging.info(f"✅ 데이터 로드 완료: {self.data_file}, 총 {len(df)} 개의 데이터")
             return df
         except Exception as e:
-            logging.error(f"🚨 Error Loading Data: {e}")
+            logging.error(f"🚨 데이터 로딩 오류: {e}")
             return None
 
     def run_backtest(self, strategy):
@@ -40,19 +41,7 @@ class Backtester:
 
         self.calculate_performance()
 
-    def execute_trade(self, trade_type: str, price: float, timestamp: str):
-        """ 주문 실행 및 잔고 업데이트 """
-        position_size = self.balance * 0.1  # 예제: 자본금의 10% 사용
-        self.trades.append({"timestamp": timestamp, "type": trade_type, "price": price, "size": position_size})
-        logging.info(f"📈 Trade Executed: {trade_type} at {price} USDT, Size: {position_size} USDT")
-
-    def calculate_performance(self):
-        """ 성과 분석 (PnL 계산) """
-        pnl = sum([t["size"] * 0.02 for t in self.trades])  # 예제: 각 거래에서 2% 수익 가정
-        logging.info(f"📊 Total PnL: {pnl:.2f} USDT")
-        return pnl
-
-# 사용 예시
+# 실행 예제
 if __name__ == "__main__":
     def simple_strategy(row):
         return "BUY" if row["price"] > row["price"].mean() else None
