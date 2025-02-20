@@ -1,24 +1,36 @@
-#✅ Depth5, Depth20을 포함하여 다양한 Depth 레벨 분석 (Depth10, Depth50, Depth100 추가)
-#✅ Bid-Ask Imbalance, Iceberg 주문 감지, Spoofing 패턴과 결합하여 강력한 시장 신호 분석
-#✅ 호가창 데이터를 1초·5초·1분·5분 단위로 정리하여 시장 유동성 변화를 시계열로 저장
-#✅ OBS를 활용한 실시간 시장 깊이 시각화 지원 (추후 적용 가능)
-
 import websocket
 import json
 import pandas as pd
 import numpy as np
 import time
 import threading
+import requests
+import matplotlib.pyplot as plt
+import os
+from collections import deque
+from dotenv import load_dotenv
+from coin_selector import SELECTED_COIN  # 📌 `coin_selector.py`에서 코인 선택 변수 가져오기
 
-BINANCE_WS_URL = "wss://fstream.binance.com/ws/"
+# 환경 변수 로드 (.env 파일에서 API 키 및 Telegram 설정 가져오기)
+load_dotenv()
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+BINANCE_WS_URL = os.getenv("BINANCE_WS_URL", "wss://fstream.binance.com/ws/")
 
 class MarketDepthAnalyzer:
-    def __init__(self, symbol="BTCUSDT", depth_levels=[5, 10, 20, 50, 100], timeframes=["1s", "5s", "1m", "5m"]):
-        self.symbol = symbol.lower()
+    def __init__(self, depth_levels=[5, 10, 20, 50, 100], timeframes=["1s", "5s", "1m", "5m"]):
+        self.symbol = SELECTED_COIN  # ✅ `coin_selector.py`에서 선택된 코인 적용
         self.depth_levels = depth_levels
         self.timeframes = timeframes
-        self.order_book_data = {tf: [] for tf in self.timeframes}  # 시간대별 호가창 데이터 저장
-        self.recent_depth = None  # 최근 Depth 저장
+        self.order_book_data = {tf: deque(maxlen=300) for tf in self.timeframes}  # ✅ 최근 5분(300초) 데이터 저장
+        self.recent_depth = None  # ✅ 최신 Depth 데이터 저장
+
+        # ✅ `coin_selector.py`에서 가져온 코인으로 WebSocket URL 설정
+        self.ws_url = f"{BINANCE_WS_URL}{self.symbol.lower()}@depth@100ms"
+
+        # 차트 초기화 (OBS 시각화 지원)
+        plt.ion()
+        self.fig, self.ax = plt.subplots(figsize=(10, 5))
 
     def calculate_depth_metrics(self, data):
         """ 시장 깊이 분석 및 유동성 평가 """
@@ -41,9 +53,6 @@ class MarketDepthAnalyzer:
         for timeframe in self.timeframes:
             self.order_book_data[timeframe].append((current_time, depth_data))
 
-            # 5분 이내의 데이터만 유지 (5분 = 300초)
-            self.order_book_data[timeframe] = [(t, d) for t, d in self.order_book_data[timeframe] if current_time - t < 300]
-
     def process_order_book(self, data):
         """ WebSocket을 통해 수신된 호가창 데이터 처리 """
         depth_metrics = self.calculate_depth_metrics(data)
@@ -52,6 +61,37 @@ class MarketDepthAnalyzer:
 
         print(f"📊 [시장 깊이 분석] {self.symbol} | {depth_metrics}")
 
+        # ✅ 차트 업데이트 (OBS 연동)
+        self.update_chart()
+
+    def send_telegram_alert(self, message):
+        """ Telegram 알림 전송 """
+        if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+            requests.post(url, data=payload)
+        else:
+            print("⚠️ Telegram 설정이 누락되었습니다! .env 파일을 확인하세요.")
+
+    def update_chart(self):
+        """ 시장 깊이 변화를 실시간 시각화 (OBS 연동) """
+        self.ax.clear()
+
+        # 최근 100개 데이터 기준으로 시각화
+        if len(self.order_book_data["1s"]) > 1:
+            times = [time.strftime('%H:%M:%S', time.localtime(t[0])) for t in self.order_book_data["1s"]]
+            depth_values = [t[1]["Depth100_Bid_Ask_Ratio"] for t in self.order_book_data["1s"]]
+
+            self.ax.plot(times, depth_values, label="Depth100 Bid-Ask Ratio", color="blue")
+
+        self.ax.set_title(f"Market Depth Analysis ({self.symbol.upper()})")
+        self.ax.set_xlabel("Time")
+        self.ax.set_ylabel("Bid-Ask Ratio")
+        self.ax.legend()
+        plt.xticks(rotation=45)
+        plt.draw()
+        plt.pause(0.01)
+
     def on_message(self, ws, message):
         """ WebSocket 메시지 수신 후 처리 """
         data = json.loads(message)
@@ -59,8 +99,7 @@ class MarketDepthAnalyzer:
 
     def run(self):
         """ WebSocket 실행 """
-        ws_url = f"{BINANCE_WS_URL}{self.symbol.lower()}@depth@100ms"
-        ws = websocket.WebSocketApp(ws_url, on_message=self.on_message)
+        ws = websocket.WebSocketApp(self.ws_url, on_message=self.on_message)
         print(f"🟢 {self.symbol} 시장 깊이 분석 시작")
         ws.run_forever()
 
@@ -71,14 +110,8 @@ class MarketDepthAnalyzer:
         thread.start()
 
 if __name__ == "__main__":
-    market_depth_analyzer = MarketDepthAnalyzer(symbol="BTCUSDT")
+    market_depth_analyzer = MarketDepthAnalyzer()
     market_depth_analyzer.start_analysis()
 
-    time.sleep(30)
+    time.sleep(60)
     print("✅ 시장 깊이 분석 종료")
-
-#1️⃣ 시장 깊이 변화에 따른 유동성 패턴 분석 → 급변 시 매매 전략에 반영
-#2️⃣ Bid-Ask Imbalance와 결합하여 시장 강세/약세 신호 분석
-#3️⃣ 5초·1분·5분 단위의 시장 깊이 변화율을 시계열 분석하여 단기 추세 감지
-#4️⃣ Iceberg 주문 감지와 결합하여 고래 매매 패턴 분석 강화
-#5️⃣ OBS 차트 연동하여 시장 깊이 변화를 실시간으로 시각화 지원

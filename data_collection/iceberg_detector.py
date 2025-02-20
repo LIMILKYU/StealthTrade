@@ -1,24 +1,47 @@
-#✅ 미체결 주문(Visible)과 체결된 주문(Hidden) 비교하여 Iceberg 주문 탐지
-#✅ 다양한 거래소(Binance, Bybit, OKX 등)의 주문 데이터 분석
-#✅ 거래량 급증과 비정상적인 주문 크기 감지하여 Iceberg 패턴 분석
-#✅ Bid-Ask Imbalance, Spoofing 감지와 결합하여 신뢰도 높은 시그널 생성
-#✅ OBS를 활용한 Iceberg 주문 실시간 시각화 지원
-
 import websocket
 import json
 import pandas as pd
 import numpy as np
 import time
 import threading
+import requests
+import matplotlib.pyplot as plt
+import os
+from collections import deque
+from dotenv import load_dotenv
+from coin_selector import SELECTED_COIN  # 📌 `coin_selector.py`에서 코인 선택 변수 가져오기
 
-BINANCE_WS_URL = "wss://fstream.binance.com/ws/"
+# 환경 변수 로드 (.env 파일에서 API 키 및 Telegram 설정 가져오기)
+load_dotenv()
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+BINANCE_WS_URL = os.getenv("BINANCE_WS_URL", "wss://fstream.binance.com/ws/")
 
 class IcebergDetector:
-    def __init__(self, symbol="BTCUSDT", threshold=0.6, window_size=10):
-        self.symbol = symbol.lower()
+    def __init__(self, depths=[100], threshold=0.6, window_size=10):
+        self.symbol = SELECTED_COIN  # ✅ `coin_selector.py`에서 선택된 코인 적용
+        self.depths = depths
         self.threshold = threshold  # Iceberg 주문 탐지 민감도 (0~1)
         self.window_size = window_size  # 최근 몇 개의 주문을 비교할지
         self.recent_orders = []  # 최근 주문 저장
+        self.price_levels = deque(maxlen=100)  # Iceberg 감지된 가격대 저장
+        self.order_sizes = deque(maxlen=100)  # Iceberg 주문량 저장
+
+        # ✅ `coin_selector.py`에서 가져온 코인으로 WebSocket URL 설정
+        self.ws_url = f"{BINANCE_WS_URL}{self.symbol.lower()}@depth@100ms"
+
+        # 차트 초기화 (OBS 시각화 지원)
+        plt.ion()
+        self.fig, self.ax = plt.subplots(figsize=(10, 5))
+
+    def send_telegram_alert(self, message):
+        """ Iceberg 주문 감지 시 Telegram 알림 전송 """
+        if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+            requests.post(url, data=payload)
+        else:
+            print("⚠️ Telegram 설정이 누락되었습니다! .env 파일을 확인하세요.")
 
     def detect_iceberg_order(self, data):
         """ Iceberg 주문 감지 """
@@ -38,7 +61,23 @@ class IcebergDetector:
         if iceberg_candidates.size > 0:
             iceberg_ratio = abs(np.mean(iceberg_candidates) / np.mean(orders[:, 1]))
             if iceberg_ratio > self.threshold:
-                print(f"🚨 [Iceberg 주문 감지] {time.strftime('%H:%M:%S')} | 비정상 주문 발생!")
+                iceberg_price = np.mean(orders[:, 0])  # Iceberg 주문이 감지된 가격대
+                iceberg_size = abs(np.sum(iceberg_candidates))  # Iceberg 주문 총량
+
+                # 감지된 가격대 및 주문량 기록
+                self.price_levels.append(iceberg_price)
+                self.order_sizes.append(iceberg_size)
+
+                print(f"🚨 [Iceberg 주문 감지] {time.strftime('%H:%M:%S')} | 가격대: {iceberg_price} | 주문량: {iceberg_size}")
+
+                # Telegram 알림 전송
+                self.send_telegram_alert(f"📊 [Iceberg 주문 감지] {self.symbol.upper()}\n"
+                                         f"🕒 시간: {time.strftime('%H:%M:%S')}\n"
+                                         f"💰 가격대: {iceberg_price}\n"
+                                         f"📈 주문량: {iceberg_size}")
+
+                # 차트 업데이트
+                self.update_chart()
                 return True
         return False
 
@@ -46,7 +85,18 @@ class IcebergDetector:
         """ WebSocket을 통해 수신된 주문장 데이터 처리 """
         iceberg_detected = self.detect_iceberg_order(data)
         if iceberg_detected:
-            print(f"📊 [경고] {self.symbol} Iceberg 주문 발생")
+            print(f"📊 [경고] {self.symbol.upper()} Iceberg 주문 발생")
+
+    def update_chart(self):
+        """ Iceberg 주문 실시간 시각화 (OBS 연동) """
+        self.ax.clear()
+        self.ax.scatter(self.price_levels, self.order_sizes, label="Iceberg Orders", color="red", marker="o", alpha=0.7)
+        self.ax.set_title(f"Iceberg Orders ({self.symbol.upper()})")
+        self.ax.set_xlabel("Price Level")
+        self.ax.set_ylabel("Order Size")
+        self.ax.legend()
+        plt.draw()
+        plt.pause(0.01)
 
     def on_message(self, ws, message):
         """ WebSocket 메시지 수신 후 처리 """
@@ -55,8 +105,7 @@ class IcebergDetector:
 
     def run(self):
         """ WebSocket 실행 """
-        ws_url = f"{BINANCE_WS_URL}{self.symbol.lower()}@depth@100ms"
-        ws = websocket.WebSocketApp(ws_url, on_message=self.on_message)
+        ws = websocket.WebSocketApp(self.ws_url, on_message=self.on_message)
         print(f"🟢 {self.symbol} Iceberg 주문 감지 시작")
         ws.run_forever()
 
@@ -67,13 +116,8 @@ class IcebergDetector:
         thread.start()
 
 if __name__ == "__main__":
-    iceberg_detector = IcebergDetector(symbol="BTCUSDT")
+    iceberg_detector = IcebergDetector()
     iceberg_detector.start_analysis()
 
-    time.sleep(30)
+    time.sleep(60)
     print("✅ Iceberg 주문 감지 종료")
-
-#1️⃣ Iceberg 주문이 감지되었을 때 자동으로 Telegram 알림 발송
-#2️⃣ Iceberg 주문 발생 시 해당 가격대에서의 거래량 변화 분석
-#3️⃣ 거래소 API 데이터를 활용한 미체결 주문 & 체결 주문 비교 분석
-#4️⃣ OBS 차트 연동하여 Iceberg 주문 감지 시 실시간 시각화 지원
