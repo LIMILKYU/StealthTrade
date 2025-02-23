@@ -1,15 +1,17 @@
 import logging
 import numpy as np
-from config import Config  # ✅ Binance API에서 실시간 자본금 가져오기
+from config import Config
 
 class PositionSizing:
-    def __init__(self, initial_balance: float, risk_tolerance: float = 0.02):
+    def __init__(self, initial_balance: float, risk_tolerance: float = 0.02, selected_coins: list = ["BTCUSDT"]):
         """
         :param initial_balance: 초기 자본금
         :param risk_tolerance: 기본 리스크 허용 비율 (기본: 2%)
+        :param selected_coins: 다중 코인 지원 (기본: BTCUSDT)
         """
         self.balance = initial_balance
         self.risk_tolerance = risk_tolerance
+        self.selected_coins = selected_coins  # 다중 코인 지원
         self.market_condition = "Range"  # 초기 시장 상태 (기본: 박스권)
         logging.basicConfig(level=logging.INFO)
 
@@ -22,20 +24,15 @@ class PositionSizing:
         logging.info(f"Market Condition Updated: {self.market_condition}")
 
     def get_current_balance(self):
-        """ ✅ Binance API에서 현재 USDT 잔고 가져오기 """
+        """ Binance API에서 현재 잔고 가져오기 """
         balance = Config.get_balance()
         if balance is None:
             logging.error("❌ [잔고 오류] Binance API에서 자본금 가져오기 실패! 기본값 100 USDT 사용.")
             return 100  # 기본값
         return balance
-        
+
     def kelly_criterion(self, win_rate: float, risk_reward_ratio: float):
-        """
-        켈리 공식 적용하여 최적 포지션 크기 계산
-        :param win_rate: 승률 (예: 0.6 = 60%)
-        :param risk_reward_ratio: 손익비 (예: 2.0 = 1:2)
-        :return: 추천 투자 비율 (최대 30% 제한)
-        """
+        """ 켈리 공식 적용하여 최적 포지션 크기 계산 """
         kelly_fraction = win_rate - (1 - win_rate) / risk_reward_ratio
         optimal_fraction = max(0, min(kelly_fraction, 0.3))  # 0% ~ 30% 제한
         logging.info(f"Kelly Criterion Position Size: {optimal_fraction:.2%}")
@@ -44,34 +41,38 @@ class PositionSizing:
     def calculate_position_size(self, win_rate: float, risk_reward_ratio: float, stop_loss_percent: float, 
                                 volatility: float, volume: float, trade_type: str, ai_volatility_factor: float):
         """
-        변동성 & 거래량을 반영하여 최적 포지션 크기 계산
-        :param win_rate: 승률 (0.6 = 60%)
-        :param risk_reward_ratio: 손익비 (예: 2.0 = 1:2)
-        :param stop_loss_percent: 손절 비율 (예: 1% = 0.01)
-        :param volatility: 최근 변동성 (예: 1.5%)
-        :param volume: 최근 거래량 (예: 500 BTC)
-        :param trade_type: "LONG" 또는 "SHORT"
-        :param ai_volatility_factor: AI 기반 변동성 가중치
-        :return: 추천 진입 금액 (USDT)
+        변동성 & 거래량을 반영하여 포지션 크기 계산
         """
-        if self.market_condition == "Strong Bearish" and trade_type == "LONG":
-            logging.warning("🚨 강한 하락장에서는 롱 포지션 진입 금지! 🚨")
-            return 0
+        # 켈리 기준에 따른 포지션 크기 계산
+        kelly_fraction = self.kelly_criterion(win_rate, risk_reward_ratio)
+        
+        # 변동성 및 거래량을 고려한 포지션 크기 계산
+        position_size = (self.balance * kelly_fraction) / (stop_loss_percent * volatility * ai_volatility_factor)
+        
+        # 시장 상태에 따른 추가 조정 (예: 상승장에서는 포지션 크기 확대)
+        if self.market_condition == "Strong Bullish":
+            position_size *= 1.5
+        elif self.market_condition == "Strong Bearish":
+            position_size *= 0.5
 
-        # 켈리 공식 기반 포지션 크기 계산
-        base_fraction = self.kelly_criterion(win_rate, risk_reward_ratio)
+        position_size = min(position_size, self.balance * 0.3)  # 최대 30% 자본까지 투자
 
-        # 변동성 & 거래량 기반 자본 배분 가중치 적용
-        volatility_weight = np.clip(volatility * ai_volatility_factor, 0.5, 2.0)  # 변동성 높은 코인은 2배 증가 가능
-        volume_weight = np.clip(volume / 1000, 0.5, 2.0)  # 거래량이 많으면 가중치 증가
-
-        # 전체 포지션 크기 계산
-        position_size = self.balance * base_fraction * volatility_weight * volume_weight
-
-        # 리스크 관리 (자본금의 최대 10% 제한)
-        max_position_size = self.balance * 0.10
-        position_size = min(position_size, max_position_size)
-
-        logging.info(f"Calculated Position Size: {position_size:.2f} USDT (Volatility Factor: {volatility_weight:.2f}, Volume Factor: {volume_weight:.2f})")
-
+        logging.info(f"Calculated Position Size: {position_size:.2f}")
         return position_size
+
+# ✅ 사용 예시
+if __name__ == "__main__":
+    ps = PositionSizing(initial_balance=10000, selected_coins=["BTCUSDT", "ETHUSDT"])
+
+    # 예시 파라미터
+    win_rate = 0.6  # 60% 승률
+    risk_reward_ratio = 2.0  # 손익비 2:1
+    stop_loss_percent = 0.02  # 손절 퍼센트 2%
+    volatility = 0.03  # 변동성
+    volume = 50000000  # 거래량 (예시)
+    ai_volatility_factor = 1.5  # AI 변동성 계수 (예시)
+    
+    for coin in ps.selected_coins:
+        position_size = ps.calculate_position_size(win_rate, risk_reward_ratio, stop_loss_percent, 
+                                                   volatility, volume, "buy", ai_volatility_factor)
+        print(f"포지션 크기 ({coin}): {position_size:.2f} USDT")
