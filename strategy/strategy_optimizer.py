@@ -1,12 +1,9 @@
+import logging
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 from strategy_evaluator import StrategyEvaluator
 from trading_signal_generator import TradingSignalGenerator
-
-# ✅ AI 변동성 최적화 객체 생성
-ai_optimizer = AIRealTimeOptimizer()
+from ai_optimization.ai_real_time_optimizer import AIRealTimeOptimizer
 
 class StrategyOptimizer:
     def __init__(self, asset="BTCUSDT", interval="1h", strategies=None):
@@ -21,14 +18,15 @@ class StrategyOptimizer:
         self.strategies = strategies if strategies else []
         self.evaluator = StrategyEvaluator()
         self.signal_generator = TradingSignalGenerator()
+        self.ai_optimizer = AIRealTimeOptimizer()
         logging.basicConfig(level=logging.INFO)
 
     def get_market_condition(self):
         """
-        ✅ AI 변동성 분석을 기반으로 시장 상태 감지
+        AI 변동성 분석을 기반으로 시장 상태 감지
         :return: "Strong Bullish", "Weak Bullish", "Range", "Weak Bearish", "Strong Bearish"
         """
-        volatility_factor = ai_optimizer.get_volatility_factor(self.asset)
+        volatility_factor = self.ai_optimizer.get_volatility_factor(self.asset)
 
         if volatility_factor > 1.5:
             return "Strong Bullish"
@@ -43,7 +41,7 @@ class StrategyOptimizer:
 
     def run_experiment(self):
         """
-        ✅ 시장 상태에 따라 최적의 전략을 선택하여 실행
+        시장 상태에 따라 최적의 전략을 선택하여 실행
         """
         market_condition = self.get_market_condition()
         logging.info(f"📌 현재 시장 상태: {market_condition}")
@@ -55,35 +53,29 @@ class StrategyOptimizer:
             signals = self.signal_generator.generate_signals(strategy)
             evaluation = self.evaluator.evaluate_strategy(signals)
             evaluation["strategy"] = strategy
+            evaluation["market_condition"] = market_condition
             results.append(evaluation)
 
         return pd.DataFrame(results)
 
-    def plot_results(self, results_df):
+    def plot_result(self, results):
         """
-        전략별 성과 비교 시각화
+        실험 결과를 시각화
+        :param results: 실험 결과 데이터프레임
         """
+        # 예시: ROI, 승률 등 지표를 기반으로 그래프 그리기
         plt.figure(figsize=(12, 6))
-        sns.barplot(data=results_df, x="strategy", y="cumulative_return", palette="coolwarm")
-        plt.title("전략별 누적 수익률 비교")
-        plt.xlabel("전략")
-        plt.ylabel("누적 수익률 (%)")
-        plt.xticks(rotation=45)
-        plt.legend(title="Market Condition")
+        sns.barplot(x="strategy", y="ROI", data=results)
+        plt.title("Strategy Performance - ROI")
         plt.show()
 
-    def optimize_strategy(self):
-        """
-        최적의 전략 탐색
-        """
-        results_df = self.run_experiment()
-        print(results_df.sort_values(by="cumulative_return", ascending=False))
-        self.plot_results(results_df)
+# ✅ 사용 예시
+if __name__ == "__main__":
+    strategies = ["RSI + SMA", "MACD + EMA", "AI Optimized Strategy"]
+    strategy_optimizer = StrategyOptimizer(asset="BTCUSDT", strategies=strategies)
 
-        best_strategy = results_df.loc[results_df["cumulative_return"].idxmax(), "strategy"]
-        logging.info(f"\n✅ 최적의 전략: {best_strategy} (현재 시장 상태: {self.get_market_condition()})")
-        return best_strategy
+    # 전략 실험 실행
+    results = strategy_optimizer.run_experiment()
 
-# 실행 예제
-# optimizer = StrategyOptimizer(strategies=["RSI", "MACD", "Bollinger Bands"])
-# best = optimizer.optimize_strategy()
+    # 결과 시각화
+    strategy_optimizer.plot_result(results)
