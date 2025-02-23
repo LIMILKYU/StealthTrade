@@ -11,11 +11,11 @@ class TradingSignalGenerator:
         """ AI 실시간 최적화된 매매 신호 반환 """
         signals = {}
         for coin in self.selected_coins:
-            signal = self.ai_optimizer.update_strategy(coin)
+            signal = self.ai_optimizer.update_strategy(coin)  # 여러 코인에 대해 신호 생성
             signals[coin] = signal
         return signals
 
-# 사용 예시
+# ✅ 사용 예시
 if __name__ == "__main__":
     signal_generator = TradingSignalGenerator("https://api.binance.com/api/v3/ticker/24hr", selected_coins=["BTCUSDT", "ETHUSDT"])
     signals = signal_generator.generate_signal()
