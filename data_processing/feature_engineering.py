@@ -1,11 +1,3 @@
-# 📌 고급 특성 엔지니어링 기법
-# ✅ 기본 통계 특성 → 평균, 표준편차, 중앙값, 최댓값/최솟값
-# ✅ 변동성 관련 특성 → ATR, 볼린저 밴드, 일중 변동성
-# ✅ 가격 모멘텀 특성 → RSI, MACD, 모멘텀 지표
-# ✅ 거래량 분석 특성 → OBV, 거래량 변화율, VWAP
-# ✅ 시장 심리 분석 → 공포/탐욕 지수 기반 감성 분석
-# ✅ 시계열 패턴 → 차분(differencing), 이동 평균, 고유 주기성
-
 import numpy as np
 import pandas as pd
 from scipy.stats import skew, kurtosis
@@ -14,19 +6,58 @@ from ta.trend import MACD
 from ta.volatility import BollingerBands, AverageTrueRange
 from ta.volume import OnBalanceVolumeIndicator
 from sklearn.preprocessing import MinMaxScaler
+import os
+from pymongo import MongoClient
+import mysql.connector
+import psycopg2
+from dotenv import load_dotenv
+
+# ✅ 환경 변수 로드
+load_dotenv()
+MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
+MONGO_DB = os.getenv("MONGO_DB", "trading_data")
+MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "feature_data")
+SELECTED_COINS = os.getenv("SELECTED_COINS", "BTCUSDT,ETHUSDT,SOLUSDT").split(",")
+USE_MYSQL = os.getenv("USE_MYSQL") == "True"
+USE_POSTGRES = os.getenv("USE_POSTGRES") == "True"
+USE_MONGO = os.getenv("USE_MONGO") == "True"
 
 class FeatureEngineering:
-    def __init__(self, df):
-        """
+    def __init__(self, df, symbol):
+        """ 
         머신러닝 특성 엔지니어링 클래스
         :param df: OHLCV 데이터
+        :param symbol: 코인 심볼 (예: BTCUSDT)
         """
         self.df = df.copy()
-    
+        self.symbol = symbol
+
+        # ✅ 데이터베이스 설정
+        if USE_MONGO:
+            self.mongo_client = MongoClient(MONGO_URL)
+            self.db = self.mongo_client[MONGO_DB]
+            self.collection = self.db[MONGO_COLLECTION]
+
+        if USE_MYSQL:
+            self.mysql_conn = mysql.connector.connect(
+                host=os.getenv("MYSQL_HOST"),
+                user=os.getenv("MYSQL_USER"),
+                password=os.getenv("MYSQL_PASSWORD"),
+                database=os.getenv("MYSQL_DATABASE")
+            )
+            self.mysql_cursor = self.mysql_conn.cursor()
+
+        if USE_POSTGRES:
+            self.postgres_conn = psycopg2.connect(
+                host=os.getenv("POSTGRES_HOST"),
+                user=os.getenv("POSTGRES_USER"),
+                password=os.getenv("POSTGRES_PASSWORD"),
+                database=os.getenv("POSTGRES_DATABASE")
+            )
+            self.postgres_cursor = self.postgres_conn.cursor()
+
     def add_basic_stats(self):
-        """
-        기본 통계 특성 추가 (평균, 중앙값, 표준편차 등)
-        """
+        """ 기본 통계 특성 추가 (평균, 중앙값, 표준편차 등) """
         self.df["price_mean"] = self.df["close"].rolling(window=10).mean()
         self.df["price_median"] = self.df["close"].rolling(window=10).median()
         self.df["price_std"] = self.df["close"].rolling(window=10).std()
@@ -34,21 +65,17 @@ class FeatureEngineering:
         self.df["price_min"] = self.df["close"].rolling(window=10).min()
 
     def add_volatility_features(self):
-        """
-        변동성 관련 특성 추가 (ATR, 볼린저 밴드)
-        """
+        """ 변동성 관련 특성 추가 (ATR, 볼린저 밴드) """
         atr = AverageTrueRange(high=self.df["high"], low=self.df["low"], close=self.df["close"])
         self.df["ATR"] = atr.average_true_range()
-        
+
         bb = BollingerBands(close=self.df["close"], window=20, window_dev=2)
         self.df["BB_High"] = bb.bollinger_hband()
         self.df["BB_Low"] = bb.bollinger_lband()
         self.df["BB_Width"] = bb.bollinger_wband()
 
     def add_momentum_features(self):
-        """
-        모멘텀 관련 특성 추가 (RSI, MACD, 모멘텀)
-        """
+        """ 모멘텀 관련 특성 추가 (RSI, MACD, 모멘텀) """
         self.df["RSI"] = RSIIndicator(close=self.df["close"], window=14).rsi()
         self.df["Momentum"] = self.df["close"].diff(5)
 
@@ -56,51 +83,52 @@ class FeatureEngineering:
         self.df["MACD"] = macd.macd()
         self.df["MACD_Signal"] = macd.macd_signal()
 
-    def add_volume_features(self):
-        """
-        거래량 관련 특성 추가 (OBV, 거래량 변화율, VWAP)
-        """
-        self.df["volume_change"] = self.df["volume"].pct_change()
-        self.df["OBV"] = OnBalanceVolumeIndicator(close=self.df["close"], volume=self.df["volume"]).on_balance_volume()
-        self.df["VWAP"] = (self.df["close"] * self.df["volume"]).cumsum() / self.df["volume"].cumsum()
+    def store_features(self):
+        """ 특성 저장 (MongoDB, MySQL, PostgreSQL) """
+        features = self.df.to_dict(orient="records")
 
-    def add_sentiment_features(self):
-        """
-        시장 심리 분석 특성 추가 (공포/탐욕 지수, 감성 분석)
-        """
-        self.df["fear_greed_index"] = np.random.uniform(0, 1, len(self.df))  # 실제 데이터 연동 필요
+        if USE_MONGO:
+            self.collection.insert_many(features)
 
-    def add_time_features(self):
-        """
-        시계열 패턴 분석 (요일, 시간대, 주기성)
-        """
-        self.df["timestamp"] = pd.to_datetime(self.df["timestamp"])
-        self.df["hour"] = self.df["timestamp"].dt.hour
-        self.df["dayofweek"] = self.df["timestamp"].dt.dayofweek
+        if USE_MYSQL:
+            sql = """
+            INSERT INTO feature_data (timestamp, symbol, price_mean, price_median, price_std, price_max, price_min, ATR, BB_High, BB_Low, BB_Width, RSI, Momentum, MACD, MACD_Signal) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            for feature in features:
+                self.mysql_cursor.execute(sql, (
+                    feature["timestamp"], feature["symbol"], feature["price_mean"], feature["price_median"],
+                    feature["price_std"], feature["price_max"], feature["price_min"], feature["ATR"], 
+                    feature["BB_High"], feature["BB_Low"], feature["BB_Width"], feature["RSI"], feature["Momentum"], 
+                    feature["MACD"], feature["MACD_Signal"]
+                ))
+            self.mysql_conn.commit()
 
-    def scale_features(self):
-        """
-        특성 스케일링 (MinMaxScaler)
-        """
-        scaler = MinMaxScaler()
-        feature_cols = ["price_mean", "price_std", "ATR", "RSI", "Momentum", "MACD", "VWAP"]
-        self.df[feature_cols] = scaler.fit_transform(self.df[feature_cols])
+        if USE_POSTGRES:
+            sql = """
+            INSERT INTO feature_data (timestamp, symbol, price_mean, price_median, price_std, price_max, price_min, ATR, BB_High, BB_Low, BB_Width, RSI, Momentum, MACD, MACD_Signal) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            for feature in features:
+                self.postgres_cursor.execute(sql, (
+                    feature["timestamp"], feature["symbol"], feature["price_mean"], feature["price_median"],
+                    feature["price_std"], feature["price_max"], feature["price_min"], feature["ATR"], 
+                    feature["BB_High"], feature["BB_Low"], feature["BB_Width"], feature["RSI"], feature["Momentum"], 
+                    feature["MACD"], feature["MACD_Signal"]
+                ))
+            self.postgres_conn.commit()
 
-    def process_all(self):
-        """
-        모든 특성 생성 실행
-        """
+    def process(self):
+        """ 특성 공학 프로세스 실행 """
         self.add_basic_stats()
         self.add_volatility_features()
         self.add_momentum_features()
-        self.add_volume_features()
-        self.add_sentiment_features()
-        self.add_time_features()
-        self.scale_features()
+        self.store_features()
 
-# 사용 예시
-# df = pd.read_csv("ohlcv_data.csv")
-# fe = FeatureEngineering(df)
-# fe.process_all()
-# print(fe.df.head())
-
+# ✅ 사용 예시
+if __name__ == "__main__":
+    # 예시 데이터프레임 로드 (OHLCV 데이터)
+    df = pd.read_csv("ohlcv_data.csv")  # OHLCV 데이터를 파일로부터 로드
+    symbol = "BTCUSDT"  # 예시 심볼
+    feature_engineer = FeatureEngineering(df, symbol)
+    feature_engineer.process()
