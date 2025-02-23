@@ -3,6 +3,8 @@ import json
 import os
 import logging
 import pandas as pd
+import mysql.connector
+import psycopg2
 import time
 from pymongo import MongoClient
 from dotenv import load_dotenv
@@ -15,6 +17,9 @@ MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
 MONGO_DB = os.getenv("MONGO_DB", "trading_data")
 MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "order_book")
 SELECTED_COINS = os.getenv("SELECTED_COINS", "BTCUSDT,ETHUSDT,SOLUSDT").split(",")
+USE_MYSQL = os.getenv("USE_MYSQL") == "True"
+USE_POSTGRES = os.getenv("USE_POSTGRES") == "True"
+USE_MONGO = os.getenv("USE_MONGO") == "True"
 
 class OrderBookCollector:
     def __init__(self):
@@ -31,9 +36,30 @@ class OrderBookCollector:
             for symbol in self.symbols
             for depth in self.depth_levels
         }
-        self.mongo_client = MongoClient(MONGO_URL)
-        self.db = self.mongo_client[MONGO_DB]
-        self.collection = self.db[MONGO_COLLECTION]
+
+        # ✅ 데이터베이스 설정
+        if USE_MONGO:
+            self.mongo_client = MongoClient(MONGO_URL)
+            self.db = self.mongo_client[MONGO_DB]
+            self.collection = self.db[MONGO_COLLECTION]
+
+        if USE_MYSQL:
+            self.mysql_conn = mysql.connector.connect(
+                host=os.getenv("MYSQL_HOST"),
+                user=os.getenv("MYSQL_USER"),
+                password=os.getenv("MYSQL_PASSWORD"),
+                database=os.getenv("MYSQL_DATABASE")
+            )
+            self.mysql_cursor = self.mysql_conn.cursor()
+
+        if USE_POSTGRES:
+            self.postgres_conn = psycopg2.connect(
+                host=os.getenv("POSTGRES_HOST"),
+                user=os.getenv("POSTGRES_USER"),
+                password=os.getenv("POSTGRES_PASSWORD"),
+                database=os.getenv("POSTGRES_DATABASE")
+            )
+            self.postgres_cursor = self.postgres_conn.cursor()
 
     def process_order_book(self, data, symbol, depth):
         """ ✅ 호가창 데이터 처리 및 저장 """
@@ -45,7 +71,21 @@ class OrderBookCollector:
         self.data[(symbol, depth)] = self.data[(symbol, depth)].append(row, ignore_index=True)
 
         # ✅ MongoDB 저장
-        self.collection.insert_one(row)
+        if USE_MONGO:
+            self.collection.insert_one(row)
+
+        # ✅ MySQL 저장
+        if USE_MYSQL:
+            sql = "INSERT INTO order_book (timestamp, symbol, depth, bids, asks) VALUES (%s, %s, %s, %s, %s)"
+            self.mysql_cursor.execute(sql, (timestamp, symbol.upper(), depth, str(bids), str(asks)))
+            self.mysql_conn.commit()
+
+        # ✅ PostgreSQL 저장
+        if USE_POSTGRES:
+            sql = "INSERT INTO order_book (timestamp, symbol, depth, bids, asks) VALUES (%s, %s, %s, %s, %s)"
+            self.postgres_cursor.execute(sql, (timestamp, symbol.upper(), depth, str(bids), str(asks)))
+            self.postgres_conn.commit()
+
         logging.info(f"✅ [호가창 저장] {timestamp} {symbol.upper()} depth{depth} - Bids: {bids[:3]}... Asks: {asks[:3]}...")
 
     def on_message(self, ws, message, symbol, depth):
