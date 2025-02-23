@@ -1,17 +1,18 @@
 import numpy as np
 from scipy.optimize import minimize
+from sklearn.linear_model import LinearRegression
 
 def objective_function(params, market_data):
     """
     AI 기반 전략 최적화 목적 함수
-    params: 최적화할 매개변수 (예: 손익비, 진입 기준)
-    market_data: 과거 시장 데이터
+    :param params: 최적화할 매개변수 (예: 손익비, 진입 기준)
+    :param market_data: 과거 시장 데이터
     """
     win_rate, risk_reward_ratio = params
-    
+
     # 가상의 백테스트 시뮬레이션 (수익률 계산)
     simulated_returns = simulate_strategy(market_data, win_rate, risk_reward_ratio)
-    
+
     # 손실 최소화, 수익률 최대화 (부호를 반대로 하여 minimize 함수 사용)
     return -np.mean(simulated_returns) / np.std(simulated_returns)
 
@@ -33,9 +34,9 @@ def optimize_trading_strategy(market_data):
     """
     initial_guess = [0.5, 2.0]  # 초기 승률 50%, 손익비 2:1
     bounds = [(0.1, 0.9), (1.0, 5.0)]  # 매개변수 범위 설정
-    
+
     result = minimize(objective_function, initial_guess, args=(market_data,), bounds=bounds)
-    
+
     optimized_win_rate, optimized_risk_reward = result.x
     return {
         'optimized_win_rate': optimized_win_rate,
@@ -53,11 +54,25 @@ def adaptive_strategy_adjustment(market_regime, base_parameters):
         "약한 하락장": {'risk_reward_ratio': 1.2, 'position_multiplier': -1.1},
         "강한 하락장": {'risk_reward_ratio': 1.5, 'position_multiplier': -1.3}
     }
-    
+
     adj = adjustments.get(market_regime, {'risk_reward_ratio': 1.0, 'position_multiplier': 1.0})
     adjusted_params = {
         'risk_reward_ratio': base_parameters['risk_reward_ratio'] * adj['risk_reward_ratio'],
         'position_multiplier': base_parameters['position_multiplier'] * adj['position_multiplier']
     }
-    
     return adjusted_params
+
+# ✅ 사용 예시
+if __name__ == "__main__":
+    market_data = [
+        {'atr': 0.02, 'price': 50000},
+        {'atr': 0.03, 'price': 51000},
+        {'atr': 0.01, 'price': 52000},
+    ]
+    optimized_params = optimize_trading_strategy(market_data)
+    print(f"최적화된 전략 파라미터: {optimized_params}")
+
+    market_regime = "강한 상승장"
+    base_parameters = {'risk_reward_ratio': 2.0, 'position_multiplier': 1.0}
+    adjusted_params = adaptive_strategy_adjustment(market_regime, base_parameters)
+    print(f"조정된 전략 파라미터: {adjusted_params}")
